@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "../prisma";
@@ -15,6 +16,8 @@ export const defaultDashboardFilters: DashboardFilters = {
   score: "all",
   days: "30"
 };
+
+const DASHBOARD_REVALIDATE_SECONDS = 10;
 
 function thresholdFromScore(value: string) {
   if (value === "high") return 0.75;
@@ -53,7 +56,7 @@ export function normalizeDashboardFilters(input?: Partial<Record<string, string 
   };
 }
 
-export async function getDashboardData(filters: DashboardFilters) {
+async function loadDashboardData(filters: DashboardFilters) {
   const scoreThreshold = thresholdFromScore(filters.score);
   const fromDate = dateFromDays(filters.days);
 
@@ -102,10 +105,24 @@ export async function getDashboardData(filters: DashboardFilters) {
     ]),
     prisma.signal.findMany({
       where: signalWhere,
-      include: {
+      select: {
+        id: true,
+        authorHandle: true,
+        postText: true,
+        createdAt: true,
+        matchedRule: true,
         analysis: {
-          include: {
-            cluster: true
+          select: {
+            id: true,
+            sport: true,
+            relevanceStatus: true,
+            leadIntentScore: true,
+            commercialRelevanceScore: true,
+            cluster: {
+              select: {
+                name: true
+              }
+            }
           }
         }
       },
@@ -115,9 +132,25 @@ export async function getDashboardData(filters: DashboardFilters) {
     }),
     prisma.audienceCluster.findMany({
       where: clusterWhere,
-      include: {
-        analyses: true,
-        recipe: true
+      select: {
+        id: true,
+        name: true,
+        sport: true,
+        geoScope: true,
+        audienceType: true,
+        summary: true,
+        confidenceScore: true,
+        recipe: {
+          select: {
+            id: true,
+            audienceName: true
+          }
+        },
+        _count: {
+          select: {
+            analyses: true
+          }
+        }
       },
       orderBy: {
         confidenceScore: "desc"
@@ -126,8 +159,21 @@ export async function getDashboardData(filters: DashboardFilters) {
     }),
     prisma.audienceRecipe.findMany({
       where: recipeWhere,
-      include: {
-        cluster: true
+      select: {
+        id: true,
+        audienceName: true,
+        targetSport: true,
+        targetLocation: true,
+        targetUserType: true,
+        suggestedLandingPage: true,
+        adAngle: true,
+        cta: true,
+        confidenceScore: true,
+        cluster: {
+          select: {
+            name: true
+          }
+        }
       },
       orderBy: {
         confidenceScore: "desc"
@@ -163,48 +209,146 @@ export async function getDashboardData(filters: DashboardFilters) {
       recipeCount: summary[4]
     },
     signals,
-    clusters,
+    clusters: clusters.map((cluster) => ({
+      id: cluster.id,
+      name: cluster.name,
+      sport: cluster.sport,
+      geoScope: cluster.geoScope,
+      audienceType: cluster.audienceType,
+      summary: cluster.summary,
+      confidenceScore: cluster.confidenceScore,
+      signalCount: cluster._count.analyses,
+      recipe: cluster.recipe
+    })),
     recipes
   };
 }
 
-export async function getSignalDetail(id: string) {
-  return prisma.signal.findUnique({
-    where: {
-      id
-    },
-    include: {
-      analysis: {
-        include: {
-          cluster: {
-            include: {
-              recipe: true
-            }
-          }
-        }
-      }
-    }
-  });
+const getCachedDashboardData = unstable_cache(
+  async (sport: string, status: string, score: string, days: string) =>
+    loadDashboardData({
+      sport,
+      status,
+      score,
+      days
+    }),
+  ["dashboard-data"],
+  {
+    revalidate: DASHBOARD_REVALIDATE_SECONDS
+  }
+);
+
+export async function getDashboardData(filters: DashboardFilters) {
+  return getCachedDashboardData(filters.sport, filters.status, filters.score, filters.days);
 }
 
-export async function getRecipeDetail(id: string) {
-  return prisma.audienceRecipe.findUnique({
-    where: {
-      id
-    },
-    include: {
-      cluster: {
-        include: {
-          analyses: {
-            include: {
-              signal: true
-            },
-            orderBy: {
-              leadIntentScore: "desc"
+const getCachedSignalDetail = unstable_cache(
+  async (id: string) =>
+    prisma.signal.findUnique({
+      where: {
+        id
+      },
+      select: {
+        id: true,
+        authorHandle: true,
+        postText: true,
+        createdAt: true,
+        matchedRule: true,
+        postUrl: true,
+        rawJson: true,
+        analysis: {
+          select: {
+            sport: true,
+            relevanceStatus: true,
+            leadIntentScore: true,
+            userType: true,
+            skillLevel: true,
+            city: true,
+            state: true,
+            country: true,
+            sentiment: true,
+            urgencyScore: true,
+            commercialRelevanceScore: true,
+            explanation: true,
+            cluster: {
+              select: {
+                recipe: {
+                  select: {
+                    id: true
+                  }
+                }
+              }
             }
           }
         }
       }
-    }
-  });
+    }),
+  ["signal-detail"],
+  {
+    revalidate: DASHBOARD_REVALIDATE_SECONDS
+  }
+);
+
+export async function getSignalDetail(id: string) {
+  return getCachedSignalDetail(id);
+}
+
+const getCachedRecipeDetail = unstable_cache(
+  async (id: string) =>
+    prisma.audienceRecipe.findUnique({
+      where: {
+        id
+      },
+      select: {
+        id: true,
+        audienceName: true,
+        targetSport: true,
+        targetLocation: true,
+        targetUserType: true,
+        cta: true,
+        suggestedLandingPage: true,
+        adAngle: true,
+        keywordTargets: true,
+        conversationTargets: true,
+        exclusions: true,
+        confidenceScore: true,
+        cluster: {
+          select: {
+            name: true,
+            summary: true,
+            _count: {
+              select: {
+                analyses: true
+              }
+            },
+            analyses: {
+              select: {
+                id: true,
+                relevanceStatus: true,
+                leadIntentScore: true,
+                signal: {
+                  select: {
+                    id: true,
+                    authorHandle: true,
+                    postText: true
+                  }
+                }
+              },
+              orderBy: {
+                leadIntentScore: "desc"
+              },
+              take: 8
+            }
+          }
+        }
+      }
+    }),
+  ["recipe-detail"],
+  {
+    revalidate: DASHBOARD_REVALIDATE_SECONDS
+  }
+);
+
+export async function getRecipeDetail(id: string) {
+  return getCachedRecipeDetail(id);
 }

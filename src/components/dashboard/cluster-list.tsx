@@ -1,5 +1,4 @@
-import Link from "next/link";
-
+import { HoverPrefetchLink } from "./hover-prefetch-link";
 import { ConfidenceBadge } from "./confidence-badge";
 
 type ClusterListProps = {
@@ -11,7 +10,7 @@ type ClusterListProps = {
     audienceType: string;
     summary: string;
     confidenceScore: number;
-    analyses: Array<{ id: string }>;
+    signalCount: number;
     recipe: { id: string; audienceName: string } | null;
   }>;
 };
@@ -41,7 +40,7 @@ export function ClusterList({ clusters }: ClusterListProps) {
             <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-ink/55">
               <span className="rounded-full bg-stone-100 px-3 py-1">{cluster.geoScope}</span>
               <span className="rounded-full bg-stone-100 px-3 py-1">{cluster.audienceType.replaceAll("_", " ")}</span>
-              <span className="rounded-full bg-stone-100 px-3 py-1">{cluster.analyses.length} signals</span>
+              <span className="rounded-full bg-stone-100 px-3 py-1">{cluster.signalCount} signals</span>
             </div>
 
             <p className="mt-4 text-sm leading-6 text-ink/72">{cluster.summary}</p>
@@ -49,13 +48,12 @@ export function ClusterList({ clusters }: ClusterListProps) {
             <div className="mt-5 flex items-center justify-between">
               <p className="text-sm text-ink/60">{cluster.recipe ? cluster.recipe.audienceName : "Recipe pending"}</p>
               {cluster.recipe ? (
-                <Link
+                <HoverPrefetchLink
                   href={`/recipes/${cluster.recipe.id}`}
-                  prefetch={false}
                   className="inline-flex rounded-full border border-sea/25 bg-sea/5 px-3 py-2 text-sm font-semibold text-sea transition hover:border-sea hover:bg-sea hover:text-white"
                 >
                   View recipe
-                </Link>
+                </HoverPrefetchLink>
               ) : null}
             </div>
           </article>

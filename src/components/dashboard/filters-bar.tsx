@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 import type { DashboardFilters } from "../../lib/db/dashboard";
 
 const sports = [
@@ -109,13 +107,9 @@ export function FiltersBar({ filters }: FiltersBarProps) {
         >
           Apply filters
         </button>
-        <Link
-          href="/"
-          prefetch={false}
-          className="rounded-2xl border border-stone-200 px-4 py-3 text-sm font-semibold text-ink/80 transition hover:border-sea hover:text-sea"
-        >
+        <a href="/" className="rounded-2xl border border-stone-200 px-4 py-3 text-sm font-semibold text-ink/80 transition hover:border-sea hover:text-sea">
           Reset
-        </Link>
+        </a>
       </div>
     </form>
   );

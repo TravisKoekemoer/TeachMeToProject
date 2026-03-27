@@ -1,12 +1,13 @@
 import { seedRules } from "../../data/seed-rules";
 import { prisma } from "../prisma";
-import type { RelevanceStatus } from "../types";
-import { generateAudienceClusters } from "./clustering";
-import { generateAudienceRecipe } from "./recipe-generator";
 import { createXSignalProvider } from "../providers/x";
 import { classifySignalWithLlm } from "../scoring/classifier";
 import { buildFilteredOutAnalysis } from "../scoring/fallback-analysis";
 import { matchSignalToRules } from "../scoring/rule-prefilter";
+import { stableId } from "../stable-id";
+import type { RelevanceStatus } from "../types";
+import { generateAudienceClusters } from "./clustering";
+import { generateAudienceRecipe } from "./recipe-generator";
 
 type RunOptions = {
   providerMode?: "mock";
@@ -16,11 +17,7 @@ function normalizeStatus(status: RelevanceStatus) {
   return status;
 }
 
-async function runInBatches<T>(
-  items: T[],
-  batchSize: number,
-  worker: (item: T, index: number) => Promise<void>
-) {
+async function runInBatches<T>(items: T[], batchSize: number, worker: (item: T, index: number) => Promise<void>) {
   for (let index = 0; index < items.length; index += batchSize) {
     const batch = items.slice(index, index + batchSize);
     await Promise.all(batch.map((item, batchIndex) => worker(item, index + batchIndex)));
@@ -32,6 +29,7 @@ export async function syncRules() {
 
   await prisma.rule.createMany({
     data: seedRules.map((rule) => ({
+      id: stableId("rule", `${rule.sport}:${rule.name}`),
       name: rule.name,
       queryText: rule.queryText,
       enabled: rule.enabled,
@@ -59,6 +57,7 @@ async function upsertProviderSignals() {
         rawJson: signal.rawJson
       },
       create: {
+        id: stableId("signal", signal.platformSignalId),
         platformSignalId: signal.platformSignalId,
         authorHandle: signal.authorHandle,
         authorDisplayName: signal.authorDisplayName,
@@ -95,9 +94,7 @@ export async function runIntentToAudienceEngine(_options: RunOptions = {}) {
   await runInBatches(signals, 6, async (signal) => {
     const ruleMatch = matchSignalToRules(signal, rules);
 
-    const analysis = ruleMatch
-      ? await classifySignalWithLlm(signal)
-      : buildFilteredOutAnalysis(signal);
+    const analysis = ruleMatch ? await classifySignalWithLlm(signal) : buildFilteredOutAnalysis(signal);
 
     await prisma.$transaction([
       prisma.signal.update({
@@ -110,6 +107,7 @@ export async function runIntentToAudienceEngine(_options: RunOptions = {}) {
       }),
       prisma.signalAnalysis.create({
         data: {
+          id: stableId("analysis", signal.platformSignalId),
           signalId: signal.id,
           sport: analysis.sport,
           city: analysis.city,
@@ -140,8 +138,14 @@ export async function runIntentToAudienceEngine(_options: RunOptions = {}) {
   const clusterDrafts = generateAudienceClusters(analysesWithSignals);
 
   for (const clusterDraft of clusterDrafts) {
+    const clusterId = stableId(
+      "cluster",
+      `${clusterDraft.sport}|${clusterDraft.audienceType}|${clusterDraft.geoScope}|${clusterDraft.name}`
+    );
+
     const cluster = await prisma.audienceCluster.create({
       data: {
+        id: clusterId,
         name: clusterDraft.name,
         sport: clusterDraft.sport,
         geoScope: clusterDraft.geoScope,
@@ -184,6 +188,7 @@ export async function runIntentToAudienceEngine(_options: RunOptions = {}) {
 
     await prisma.audienceRecipe.create({
       data: {
+        id: stableId("recipe", cluster.id),
         clusterId: cluster.id,
         audienceName: recipe.audienceName,
         targetSport: recipe.targetSport,
