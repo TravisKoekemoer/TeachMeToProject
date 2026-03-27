@@ -1,12 +1,12 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { format } from "date-fns";
 
+import { HoverPrefetchLink } from "../../../src/components/dashboard/hover-prefetch-link";
 import { ConfidenceBadge } from "../../../src/components/dashboard/confidence-badge";
 import { getSignalDetail } from "../../../src/lib/db/dashboard";
 import { titleCase } from "../../../src/lib/utils";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 10;
 
 type SignalPageProps = {
   params: Promise<{ id: string }> | { id: string };
@@ -22,9 +22,9 @@ export default async function SignalDetailPage({ params }: SignalPageProps) {
 
   return (
     <main className="space-y-6">
-      <Link href="/" prefetch={false} className="inline-flex text-sm font-semibold text-sea hover:text-dusk">
+      <HoverPrefetchLink href="/" className="inline-flex text-sm font-semibold text-sea hover:text-dusk">
         Back to dashboard
-      </Link>
+      </HoverPrefetchLink>
 
       <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <article className="rounded-[2rem] border border-white/60 bg-white/90 p-6 shadow-soft">
@@ -104,13 +104,12 @@ export default async function SignalDetailPage({ params }: SignalPageProps) {
               </div>
 
               {signal.analysis.cluster?.recipe ? (
-                <Link
+                <HoverPrefetchLink
                   href={`/recipes/${signal.analysis.cluster.recipe.id}`}
-                  prefetch={false}
                   className="inline-flex rounded-full border border-highlight/25 bg-highlight/10 px-3 py-2 text-sm font-semibold text-highlight transition hover:bg-highlight hover:text-ink"
                 >
                   Open linked recipe
-                </Link>
+                </HoverPrefetchLink>
               ) : null}
             </div>
           ) : (

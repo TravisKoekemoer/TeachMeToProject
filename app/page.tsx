@@ -7,7 +7,7 @@ import { SignalTable } from "../src/components/dashboard/signal-table";
 import { SummaryCard } from "../src/components/dashboard/summary-card";
 import { getDashboardData, normalizeDashboardFilters } from "../src/lib/db/dashboard";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 10;
 
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>;
@@ -82,31 +82,11 @@ export default async function HomePage({ searchParams }: PageProps) {
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <SummaryCard
-          label="Signals"
-          value={data.summary.totalSignals.toString()}
-          caption="Stored raw mock X posts."
-        />
-        <SummaryCard
-          label="Candidates"
-          value={data.summary.candidateSignals.toString()}
-          caption="Matched by the rule prefilter."
-        />
-        <SummaryCard
-          label="Relevant"
-          value={data.summary.relevantSignals.toString()}
-          caption="High-confidence buying or booking signals."
-        />
-        <SummaryCard
-          label="Clusters"
-          value={data.summary.clusterCount.toString()}
-          caption="Audience themes generated from analyses."
-        />
-        <SummaryCard
-          label="Recipes"
-          value={data.summary.recipeCount.toString()}
-          caption="Manual X audience recommendations available."
-        />
+        <SummaryCard label="Signals" value={data.summary.totalSignals.toString()} caption="Stored raw mock X posts." />
+        <SummaryCard label="Candidates" value={data.summary.candidateSignals.toString()} caption="Matched by the rule prefilter." />
+        <SummaryCard label="Relevant" value={data.summary.relevantSignals.toString()} caption="High-confidence buying or booking signals." />
+        <SummaryCard label="Clusters" value={data.summary.clusterCount.toString()} caption="Audience themes generated from analyses." />
+        <SummaryCard label="Recipes" value={data.summary.recipeCount.toString()} caption="Manual X audience recommendations available." />
       </section>
 
       <FiltersBar filters={filters} />

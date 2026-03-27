@@ -1,11 +1,11 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { HoverPrefetchLink } from "../../../src/components/dashboard/hover-prefetch-link";
 import { ConfidenceBadge } from "../../../src/components/dashboard/confidence-badge";
 import { getRecipeDetail } from "../../../src/lib/db/dashboard";
 import { titleCase } from "../../../src/lib/utils";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 10;
 
 type RecipePageProps = {
   params: Promise<{ id: string }> | { id: string };
@@ -21,9 +21,9 @@ export default async function RecipeDetailPage({ params }: RecipePageProps) {
 
   return (
     <main className="space-y-6">
-      <Link href="/" prefetch={false} className="inline-flex text-sm font-semibold text-sea hover:text-dusk">
+      <HoverPrefetchLink href="/" className="inline-flex text-sm font-semibold text-sea hover:text-dusk">
         Back to dashboard
-      </Link>
+      </HoverPrefetchLink>
 
       <section className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
         <article className="rounded-[2rem] border border-white/60 bg-dusk p-6 text-canvas shadow-soft">
@@ -117,11 +117,11 @@ export default async function RecipeDetailPage({ params }: RecipePageProps) {
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-dusk/65">Supporting signals</p>
             <h2 className="mt-2 font-display text-3xl text-ink">Posts behind this recipe</h2>
           </div>
-          <p className="text-sm text-ink/60">{recipe.cluster.analyses.length} mapped signals</p>
+          <p className="text-sm text-ink/60">{recipe.cluster._count.analyses} mapped signals</p>
         </div>
 
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          {recipe.cluster.analyses.slice(0, 8).map((analysis) => (
+          {recipe.cluster.analyses.map((analysis) => (
             <article key={analysis.id} className="rounded-3xl border border-stone-200 bg-stone-50 p-4">
               <p className="text-sm font-semibold text-ink">@{analysis.signal.authorHandle}</p>
               <p className="mt-2 text-sm leading-7 text-ink/72">{analysis.signal.postText}</p>
@@ -129,13 +129,12 @@ export default async function RecipeDetailPage({ params }: RecipePageProps) {
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-dusk/65">
                   {analysis.relevanceStatus} / {Math.round(analysis.leadIntentScore * 100)}%
                 </p>
-                <Link
+                <HoverPrefetchLink
                   href={`/signals/${analysis.signal.id}`}
-                  prefetch={false}
                   className="rounded-full border border-sea/20 bg-sea/5 px-3 py-2 text-sm font-semibold text-sea transition hover:border-sea hover:bg-sea hover:text-white"
                 >
                   Open signal
-                </Link>
+                </HoverPrefetchLink>
               </div>
             </article>
           ))}

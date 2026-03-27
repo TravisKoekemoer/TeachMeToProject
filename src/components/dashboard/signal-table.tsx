@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { format } from "date-fns";
 
+import { HoverPrefetchLink } from "./hover-prefetch-link";
 import { ConfidenceBadge } from "./confidence-badge";
 
 type SignalTableProps = {
@@ -41,9 +41,7 @@ export function SignalTable({ signals }: SignalTableProps) {
       <div className="flex items-center justify-between border-b border-stone-200 px-6 py-4">
         <div>
           <h2 className="font-display text-2xl text-ink">Raw signals</h2>
-          <p className="text-sm text-ink/65">
-            {signals.length} filtered signals, ranked from highest lead score to lowest.
-          </p>
+          <p className="text-sm text-ink/65">{signals.length} filtered signals, ranked from highest lead score to lowest.</p>
         </div>
       </div>
 
@@ -64,13 +62,12 @@ export function SignalTable({ signals }: SignalTableProps) {
                 <td className="px-6 py-4">
                   <p className="font-semibold text-ink">@{signal.authorHandle}</p>
                   <p className="mt-1 max-w-xl text-sm text-ink/72">{signal.postText}</p>
-                  <Link
+                  <HoverPrefetchLink
                     href={`/signals/${signal.id}`}
-                    prefetch={false}
                     className="mt-3 inline-flex rounded-full border border-sea/25 bg-sea/5 px-3 py-2 text-sm font-semibold text-sea transition hover:border-sea hover:bg-sea hover:text-white"
                   >
                     View signal
-                  </Link>
+                  </HoverPrefetchLink>
                 </td>
                 <td className="px-6 py-4 text-ink/72">{signal.matchedRule ?? "No match"}</td>
                 <td className="px-6 py-4">

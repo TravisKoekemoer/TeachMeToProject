@@ -14,19 +14,20 @@ const analysisSchemaExample = {
   userType: "adult_beginner",
   skillLevel: "beginner",
   leadIntentScore: 0.92,
-  urgencyScore: 0.64,
+  urgencyScore: 0.88,
   commercialRelevanceScore: 0.88,
   sentiment: "positive",
   relevanceStatus: "RELEVANT",
-  explanation: "Clear intent to find and pay for instruction."
+  explanation: "Clear intent to find and pay for instruction immediately."
 };
 
 const scoreRubric = [
   "Use decimal scores with two-digit precision, not buckets.",
   "leadIntentScore: 0.90-0.99 means explicit readiness to book or pay now; 0.70-0.89 means clear search for coaching; 0.45-0.69 means moderate lesson interest; 0.20-0.44 means weak or exploratory interest; 0.05-0.19 means mostly irrelevant.",
-  "urgencyScore: 0.85+ means immediate timing like this week or a near deadline; 0.55-0.84 means a clear near-term plan; 0.25-0.54 means some timing signal but not urgent; 0.05-0.24 means no urgency.",
+  "urgencyScore: 0.90+ means immediate timing like today, tomorrow, immediately, or first available slot; 0.75-0.89 means this week or a near deadline; 0.45-0.74 means a clear near-term plan; 0.20-0.44 means some timing signal but not urgent; 0.05-0.19 means no urgency.",
   "commercialRelevanceScore: 0.85+ means clear paid instruction intent; 0.60-0.84 means strong lesson or clinic relevance; 0.35-0.59 means possible coaching relevance; 0.05-0.34 means weak commercial relevance.",
   "When the post explicitly says ready to book, wants private lessons soon, or is clearly willing to pay, scores above 0.80 are appropriate.",
+  "Use higher urgency when the post mentions today, tomorrow, immediately, right away, earliest opening, or first available slot.",
   "Use middle values frequently when the post is curious, hesitant, comparing options, or asking whether lessons are worth it.",
   "Avoid defaulting to 0.05 or 0.95 unless the post is overwhelmingly clear.",
   "Use the example only for keys and value types. Do not copy the example numbers."
@@ -73,12 +74,28 @@ function blendScore(parsedScore: number, heuristicScore: number) {
   return roundScore(parsedScore * 0.45 + heuristicScore * 0.55);
 }
 
+function blendUrgencyScore(parsedScore: number, heuristicScore: number) {
+  if (heuristicScore >= 0.8) {
+    return roundScore(Math.max(parsedScore * 0.22 + heuristicScore * 0.78, heuristicScore - 0.02));
+  }
+
+  if (heuristicScore >= 0.55) {
+    return roundScore(parsedScore * 0.32 + heuristicScore * 0.68);
+  }
+
+  if (heuristicScore <= 0.18) {
+    return roundScore(parsedScore * 0.24 + heuristicScore * 0.76);
+  }
+
+  return roundScore(parsedScore * 0.38 + heuristicScore * 0.62);
+}
+
 function calibrateAnalysisWithHeuristic(
   parsedAnalysis: SignalAnalysisResult,
   heuristicAnalysis: SignalAnalysisResult
 ): SignalAnalysisResult {
   const leadIntentScore = blendScore(parsedAnalysis.leadIntentScore, heuristicAnalysis.leadIntentScore);
-  const urgencyScore = blendScore(parsedAnalysis.urgencyScore, heuristicAnalysis.urgencyScore);
+  const urgencyScore = blendUrgencyScore(parsedAnalysis.urgencyScore, heuristicAnalysis.urgencyScore);
   const commercialRelevanceScore = blendScore(
     parsedAnalysis.commercialRelevanceScore,
     heuristicAnalysis.commercialRelevanceScore

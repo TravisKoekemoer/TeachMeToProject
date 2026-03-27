@@ -1,5 +1,4 @@
-import Link from "next/link";
-
+import { HoverPrefetchLink } from "./hover-prefetch-link";
 import { ConfidenceBadge } from "./confidence-badge";
 
 type RecipeGridProps = {
@@ -56,13 +55,12 @@ export function RecipeGrid({ recipes }: RecipeGridProps) {
               </p>
             </div>
 
-            <Link
+            <HoverPrefetchLink
               href={`/recipes/${recipe.id}`}
-              prefetch={false}
               className="mt-5 inline-flex rounded-full border border-highlight/30 bg-highlight/10 px-3 py-2 text-sm font-semibold text-highlight transition hover:bg-highlight hover:text-ink"
             >
               Open detail view
-            </Link>
+            </HoverPrefetchLink>
           </article>
         ))}
       </div>

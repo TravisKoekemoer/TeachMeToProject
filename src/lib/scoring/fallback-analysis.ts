@@ -148,24 +148,34 @@ export function runFallbackClassification(signal: Pick<Signal, "postText" | "raw
     { token: "rather just play socially", weight: 0.18 }
   ];
   const urgencySignals: WeightedSignal[] = [
+    { token: "today", weight: 0.3 },
+    { token: "tomorrow", weight: 0.4 },
     { token: "this week", weight: 0.32 },
-    { token: "this weekend", weight: 0.26 },
+    { token: "this weekend", weight: 0.3 },
     { token: "next week", weight: 0.28 },
     { token: "next month", weight: 0.18 },
     { token: "starting next month", weight: 0.18 },
     { token: "spring break", weight: 0.24 },
     { token: "before summer", weight: 0.18 },
+    { token: "before next week", weight: 0.34 },
     { token: "work trip", weight: 0.22 },
-    { token: "as soon as possible", weight: 0.3 },
+    { token: "as soon as possible", weight: 0.34 },
+    { token: "immediately", weight: 0.42 },
+    { token: "right away", weight: 0.38 },
+    { token: "starting now", weight: 0.36 },
+    { token: "first available slot", weight: 0.36 },
+    { token: "earliest opening", weight: 0.34 },
     { token: "weekend", weight: 0.12 },
     { token: "in six weeks", weight: 0.12 }
   ];
   const urgencyReducers: WeightedSignal[] = [
     { token: "eventually", weight: 0.14 },
     { token: "later this summer", weight: 0.12 },
+    { token: "later", weight: 0.08 },
     { token: "not sure", weight: 0.08 },
     { token: "on the fence", weight: 0.08 },
-    { token: "someday", weight: 0.12 }
+    { token: "someday", weight: 0.12 },
+    { token: "whenever", weight: 0.14 }
   ];
   const commercialSignals: WeightedSignal[] = [
     { token: "pay", weight: 0.22 },
@@ -201,9 +211,20 @@ export function runFallbackClassification(signal: Pick<Signal, "postText" | "raw
     "starter lesson package",
     "as soon as possible"
   ]);
+  const explicitHighUrgency = hasAny(text, [
+    "today",
+    "tomorrow",
+    "immediately",
+    "right away",
+    "starting now",
+    "first available slot",
+    "earliest opening",
+    "before next week",
+    "as soon as possible"
+  ]);
   const leadMatchBonus = Math.max(0, matchCount(text, leadSignals) - 2) * 0.04;
   const instructionStackBonus = hasAny(text, ["coach", "instructor", "lessons", "classes", "clinic"]) ? 0.06 : 0;
-  const urgencyMatchBonus = Math.max(0, matchCount(text, urgencySignals) - 1) * 0.05;
+  const urgencyMatchBonus = Math.max(0, matchCount(text, urgencySignals) - 1) * 0.06;
   const commercialMatchBonus = Math.max(0, matchCount(text, commercialSignals) - 2) * 0.04;
 
   const leadIntentScore = clamp01(
@@ -215,10 +236,11 @@ export function runFallbackClassification(signal: Pick<Signal, "postText" | "raw
       weightedMatches(text, leadReducers) * 0.68
   );
   const urgencyScore = clamp01(
-    0.03 +
-      weightedMatches(text, urgencySignals) * 0.9 +
-      urgencyMatchBonus -
-      weightedMatches(text, urgencyReducers) * 0.5
+    0.02 +
+      weightedMatches(text, urgencySignals) * 1.02 +
+      urgencyMatchBonus +
+      (explicitHighUrgency ? 0.24 : 0) -
+      weightedMatches(text, urgencyReducers) * 0.55
   );
   const commercialRelevanceScore = clamp01(
     0.05 +
