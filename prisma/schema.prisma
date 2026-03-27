@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Signal {
+  id                 String          @id @default(cuid())
+  platformSignalId   String          @unique @map("platform_signal_id")
+  authorHandle       String          @map("author_handle")
+  authorDisplayName  String?         @map("author_display_name")
+  postText           String          @map("post_text")
+  postUrl            String          @map("post_url")
+  createdAt          DateTime        @map("created_at")
+  rawJson            Json            @map("raw_json")
+  matchedRule        String?         @map("matched_rule")
+  ingestionTimestamp DateTime        @default(now()) @map("ingestion_timestamp")
+  analysis           SignalAnalysis?
+
+  @@index([createdAt])
+  @@map("signals")
+}
+
+model SignalAnalysis {
+  id                        String           @id @default(cuid())
+  signalId                  String           @unique @map("signal_id")
+  clusterId                 String?          @map("cluster_id")
+  sport                     String?
+  city                      String?
+  state                     String?
+  country                   String?
+  userType                  String?          @map("user_type")
+  skillLevel                String?          @map("skill_level")
+  leadIntentScore           Float            @default(0) @map("lead_intent_score")
+  urgencyScore              Float            @default(0) @map("urgency_score")
+  commercialRelevanceScore  Float            @default(0) @map("commercial_relevance_score")
+  sentiment                 String?
+  relevanceStatus           String           @map("relevance_status")
+  explanation               String
+  processedAt               DateTime         @default(now()) @map("processed_at")
+  signal                    Signal           @relation(fields: [signalId], references: [id], onDelete: Cascade)
+  cluster                   AudienceCluster? @relation(fields: [clusterId], references: [id], onDelete: SetNull)
+
+  @@index([sport, relevanceStatus])
+  @@index([leadIntentScore])
+  @@index([processedAt])
+  @@map("signal_analyses")
+}
+
+model AudienceCluster {
+  id              String           @id @default(cuid())
+  name            String
+  sport           String
+  geoScope        String           @map("geo_scope")
+  audienceType    String           @map("audience_type")
+  summary         String
+  confidenceScore Float            @map("confidence_score")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  analyses        SignalAnalysis[]
+  recipe          AudienceRecipe?
+
+  @@index([sport])
+  @@map("audience_clusters")
+}
+
+model AudienceRecipe {
+  id                    String          @id @default(cuid())
+  clusterId             String          @unique @map("cluster_id")
+  audienceName          String          @map("audience_name")
+  targetSport           String          @map("target_sport")
+  targetLocation        String          @map("target_location")
+  targetUserType        String          @map("target_user_type")
+  keywordTargets        String[]        @map("keyword_targets")
+  conversationTargets   String[]        @map("conversation_targets")
+  exclusions            String[]
+  suggestedLandingPage  String          @map("suggested_landing_page")
+  adAngle               String          @map("ad_angle")
+  cta                   String
+  confidenceScore       Float           @map("confidence_score")
+  createdAt             DateTime        @default(now()) @map("created_at")
+  cluster               AudienceCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+
+  @@index([targetSport])
+  @@map("audience_recipes")
+}
+
+model Rule {
+  id            String   @id @default(cuid())
+  name          String
+  queryText     String   @map("query_text")
+  enabled       Boolean  @default(true)
+  sport         String
+  geographyHint String?  @map("geography_hint")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("rules")
+}
+
