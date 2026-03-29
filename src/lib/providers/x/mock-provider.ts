@@ -1,14 +1,13 @@
-import { mockSignals } from "../../../data/mock-signals";
+﻿import { mockSignals } from "../../../data/mock-signals";
 
-import type { ProviderSignal, XSignalProvider } from "./types";
+import type { XIngestionProvider } from "./types";
 
-export class MockXSignalProvider implements XSignalProvider {
+export class MockXIngestionProvider implements XIngestionProvider {
+  platform = "x" as const;
+  mode = "mock" as const;
   name = "mock-x";
 
-  async fetchSignals(): Promise<ProviderSignal[]> {
-    return mockSignals.map((signal) => ({
-      ...signal,
-      authorDisplayName: signal.authorDisplayName
-    }));
+  async fetchSignals() {
+    return Promise.resolve(mockSignals);
   }
 }

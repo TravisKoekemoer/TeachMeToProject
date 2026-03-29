@@ -1,4 +1,4 @@
-import type { Rule, Signal } from "@prisma/client";
+﻿import type { Rule, Signal } from "../../generated/prisma/client";
 
 export type RuleMatch = {
   ruleName: string;
@@ -37,4 +37,5 @@ export function matchSignalToRules(signal: Pick<Signal, "postText">, rules: Rule
 
   return matches[0] ?? null;
 }
+
 

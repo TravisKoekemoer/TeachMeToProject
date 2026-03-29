@@ -1,12 +1,4 @@
-export type MockSignalSeed = {
-  platformSignalId: string;
-  authorHandle: string;
-  authorDisplayName: string;
-  postText: string;
-  postUrl: string;
-  createdAt: string;
-  rawJson: Record<string, unknown>;
-};
+import type { XIngestionSignal } from "../lib/providers/x/types";
 
 type Market = {
   city: string;
@@ -329,6 +321,41 @@ const hotspotMarketIndexes: Record<SportConfig["sport"], number[]> = {
   pickleball: [1, 1, 0, 1]
 };
 
+const marchDayWeights = [
+  1, 2, 4, 5, 4, 2, 1,
+  2, 4, 6, 5, 4, 2, 1,
+  2, 4, 5, 7, 6, 4, 1,
+  2, 5, 8, 7, 5, 9, 3,
+  1, 4, 3
+];
+
+const weightedMarchDays = marchDayWeights.flatMap((weight, index) =>
+  Array.from({ length: weight }, () => index + 1)
+);
+
+const segmentRecencyOffsets: Record<SignalSegment, number> = {
+  urgent_booking: 29,
+  strong_buyer: 23,
+  parent_youth: 17,
+  general_improvement: 13,
+  mid_intent: 9,
+  weak_intent: 5,
+  low_match: 2,
+  noise: 0
+};
+
+function buildCreatedAt(id: number, sportIndex: number, segment: SignalSegment, templateIndex: number) {
+  const weightedIndex =
+    (id * 11 + sportIndex * 17 + templateIndex * 7 + segmentRecencyOffsets[segment]) % weightedMarchDays.length;
+  const day = weightedMarchDays[weightedIndex];
+  const hourSlots = [7, 8, 9, 11, 12, 15, 17, 18, 19, 20];
+  const minuteSlots = [3, 11, 18, 26, 34, 41, 49, 56];
+  const hour = hourSlots[(id + templateIndex + sportIndex) % hourSlots.length];
+  const minute = minuteSlots[(id * 3 + templateIndex + sportIndex) % minuteSlots.length];
+
+  return new Date(Date.UTC(2026, 2, day, hour, minute)).toISOString();
+}
+
 function slugify(input: string) {
   return input.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
@@ -358,11 +385,12 @@ function createSignal(
   market: Market,
   text: string,
   segment: SignalSegment,
-  templateIndex: number
-): MockSignalSeed {
+  templateIndex: number,
+  sportIndex: number
+): XIngestionSignal {
   const handle = `${slugify(market.city)}_${handles[id % handles.length]}_${cfg.sport.slice(0, 3)}`;
   const platformSignalId = `x_mock_${id.toString().padStart(3, "0")}`;
-  const createdAt = new Date(Date.UTC(2026, 2, 1 + (id % 25), 12 + (id % 9), id % 50)).toISOString();
+  const createdAt = buildCreatedAt(id, sportIndex, segment, templateIndex);
 
   return {
     platformSignalId,
@@ -386,16 +414,18 @@ function createSignal(
   };
 }
 
-export const mockSignals: MockSignalSeed[] = sportConfigs.flatMap((cfg, sportIndex) => {
-  const rows: MockSignalSeed[] = [];
+export const mockSignals: XIngestionSignal[] = sportConfigs.flatMap((cfg, sportIndex) => {
+  const rows: XIngestionSignal[] = [];
   let idCursor = sportIndex * 100 + 1;
 
   segmentTemplateGroups.forEach((group) => {
     group.templates.forEach((template, templateIndex) => {
       const market = selectMarket(cfg, sportIndex, group, templateIndex);
-      rows.push(createSignal(idCursor++, cfg, market, template(cfg, market), group.segment, templateIndex));
+      rows.push(createSignal(idCursor++, cfg, market, template(cfg, market), group.segment, templateIndex, sportIndex));
     });
   });
 
   return rows;
 });
+
+

@@ -1,33 +1,37 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { ComponentProps } from "react";
+import type { ComponentPropsWithoutRef } from "react";
 
-type HoverPrefetchLinkProps = Omit<ComponentProps<typeof Link>, "href"> & {
+type HoverPrefetchLinkProps = Omit<ComponentPropsWithoutRef<typeof Link>, "href"> & {
   href: string;
 };
 
-export function HoverPrefetchLink({ href, onMouseEnter, onFocus, ...props }: HoverPrefetchLinkProps) {
+export function HoverPrefetchLink({ href, onMouseEnter, onFocus, onTouchStart, prefetch = false, ...props }: HoverPrefetchLinkProps) {
   const router = useRouter();
 
-  function prefetchRoute() {
+  const warmRoute = () => {
     router.prefetch(href);
-  }
+  };
 
   return (
     <Link
+      {...props}
       href={href}
-      prefetch={false}
+      prefetch={prefetch}
       onMouseEnter={(event) => {
-        prefetchRoute();
+        warmRoute();
         onMouseEnter?.(event);
       }}
       onFocus={(event) => {
-        prefetchRoute();
+        warmRoute();
         onFocus?.(event);
       }}
-      {...props}
+      onTouchStart={(event) => {
+        warmRoute();
+        onTouchStart?.(event);
+      }}
     />
   );
 }
