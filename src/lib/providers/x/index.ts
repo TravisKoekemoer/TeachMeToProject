@@ -1,13 +1,14 @@
-import { MockXSignalProvider } from "./mock-provider";
-import type { XSignalProvider } from "./types";
+﻿import { getAppRuntimeConfig } from "../../config";
 
-export function createXSignalProvider(mode: "mock" = "mock"): XSignalProvider {
-  if (mode === "mock") {
-    return new MockXSignalProvider();
+import { MockXIngestionProvider } from "./mock-provider";
+import type { XIngestionProvider } from "./types";
+
+export function createXIngestionProvider(mode = getAppRuntimeConfig().xProviderMode): XIngestionProvider {
+  switch (mode) {
+    case "mock":
+    default:
+      return new MockXIngestionProvider();
   }
-
-  return new MockXSignalProvider();
 }
 
-export type { ProviderSignal, XSignalProvider } from "./types";
-
+export type { XIngestionProvider, XIngestionSignal } from "./types";

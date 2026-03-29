@@ -1,20 +1,35 @@
+import type { AudienceCluster, Prisma, Rule, Signal, SignalAnalysis } from "../../generated/prisma/client";
+
 import { seedRules } from "../../data/seed-rules";
 import { prisma } from "../prisma";
-import { createXSignalProvider } from "../providers/x";
-import { classifySignalWithLlm } from "../scoring/classifier";
+import { createXIngestionProvider } from "../providers/x";
+import { classifySignal } from "../scoring/classifier";
 import { buildFilteredOutAnalysis } from "../scoring/fallback-analysis";
 import { matchSignalToRules } from "../scoring/rule-prefilter";
 import { stableId } from "../stable-id";
-import type { RelevanceStatus } from "../types";
-import { generateAudienceClusters } from "./clustering";
+import type { PipelineSummary, SignalAnalysisResult } from "../types";
+import { buildAudienceClusters } from "./clustering";
 import { generateAudienceRecipe } from "./recipe-generator";
 
-type RunOptions = {
-  providerMode?: "mock";
+type StoredSignal = Pick<
+  Signal,
+  "id" | "platformSignalId" | "authorHandle" | "authorDisplayName" | "postText" | "postUrl" | "createdAt" | "rawJson"
+>;
+
+type AnalysisWithSignal = SignalAnalysis & {
+  signal: Signal;
 };
 
-function normalizeStatus(status: RelevanceStatus) {
-  return status;
+type ClusterWithSignals = AudienceCluster & {
+  analyses: AnalysisWithSignal[];
+};
+
+const INGEST_BATCH_SIZE = 24;
+const ANALYSIS_BATCH_SIZE = 6;
+const RECIPE_BATCH_SIZE = 4;
+
+function toPrismaJson(value: Record<string, unknown>): Prisma.InputJsonValue {
+  return value as Prisma.InputJsonValue;
 }
 
 async function runInBatches<T>(items: T[], batchSize: number, worker: (item: T, index: number) => Promise<void>) {
@@ -24,7 +39,7 @@ async function runInBatches<T>(items: T[], batchSize: number, worker: (item: T, 
   }
 }
 
-export async function syncRules() {
+async function replaceSeedRules() {
   await prisma.rule.deleteMany();
 
   await prisma.rule.createMany({
@@ -39,11 +54,11 @@ export async function syncRules() {
   });
 }
 
-async function upsertProviderSignals() {
-  const provider = createXSignalProvider("mock");
+async function ingestSignalsFromProvider() {
+  const provider = createXIngestionProvider();
   const providerSignals = await provider.fetchSignals();
 
-  await runInBatches(providerSignals, 24, async (signal) => {
+  await runInBatches(providerSignals, INGEST_BATCH_SIZE, async (signal) => {
     await prisma.signal.upsert({
       where: {
         platformSignalId: signal.platformSignalId
@@ -54,7 +69,7 @@ async function upsertProviderSignals() {
         postText: signal.postText,
         postUrl: signal.postUrl,
         createdAt: new Date(signal.createdAt),
-        rawJson: signal.rawJson
+        rawJson: toPrismaJson(signal.rawJson)
       },
       create: {
         id: stableId("signal", signal.platformSignalId),
@@ -64,69 +79,117 @@ async function upsertProviderSignals() {
         postText: signal.postText,
         postUrl: signal.postUrl,
         createdAt: new Date(signal.createdAt),
-        rawJson: signal.rawJson
+        rawJson: toPrismaJson(signal.rawJson)
       }
     });
   });
 }
 
-export async function runIntentToAudienceEngine(_options: RunOptions = {}) {
-  await syncRules();
-  await upsertProviderSignals();
-
-  const [rules, signals] = await Promise.all([
-    prisma.rule.findMany({
-      where: {
-        enabled: true
-      }
-    }),
-    prisma.signal.findMany({
-      orderBy: {
-        createdAt: "desc"
-      }
-    })
-  ]);
-
+async function clearDerivedData() {
   await prisma.audienceRecipe.deleteMany();
   await prisma.signalAnalysis.deleteMany();
   await prisma.audienceCluster.deleteMany();
+}
 
-  await runInBatches(signals, 6, async (signal) => {
-    const ruleMatch = matchSignalToRules(signal, rules);
+async function loadRules() {
+  return prisma.rule.findMany({
+    where: {
+      enabled: true
+    }
+  });
+}
 
-    const analysis = ruleMatch ? await classifySignalWithLlm(signal) : buildFilteredOutAnalysis(signal);
+async function loadSignals(): Promise<StoredSignal[]> {
+  return prisma.signal.findMany({
+    select: {
+      id: true,
+      platformSignalId: true,
+      authorHandle: true,
+      authorDisplayName: true,
+      postText: true,
+      postUrl: true,
+      createdAt: true,
+      rawJson: true
+    },
+    orderBy: {
+      createdAt: "desc"
+    }
+  });
+}
 
-    await prisma.$transaction([
-      prisma.signal.update({
-        where: {
-          id: signal.id
-        },
-        data: {
-          matchedRule: ruleMatch?.ruleName ?? null
-        }
-      }),
-      prisma.signalAnalysis.create({
-        data: {
-          id: stableId("analysis", signal.platformSignalId),
-          signalId: signal.id,
-          sport: analysis.sport,
-          city: analysis.city,
-          state: analysis.state,
-          country: analysis.country,
-          userType: analysis.userType,
-          skillLevel: analysis.skillLevel,
-          leadIntentScore: analysis.leadIntentScore,
-          urgencyScore: analysis.urgencyScore,
-          commercialRelevanceScore: analysis.commercialRelevanceScore,
-          sentiment: analysis.sentiment,
-          relevanceStatus: normalizeStatus(analysis.relevanceStatus),
-          explanation: analysis.explanation
-        }
-      })
-    ]);
+async function analyzeStoredSignal(signal: StoredSignal, rules: Rule[]) {
+  const ruleMatch = matchSignalToRules(signal, rules);
+  const analysis: SignalAnalysisResult = ruleMatch ? await classifySignal(signal) : buildFilteredOutAnalysis(signal);
+
+  return {
+    matchedRule: ruleMatch?.ruleName ?? null,
+    analysis
+  };
+}
+
+async function persistSignalAnalysis(signal: StoredSignal, matchedRule: string | null, analysis: SignalAnalysisResult) {
+  // Keep seed/pipeline writes compatible with Neon HTTP mode by avoiding
+  // interactive transactions in the runtime client.
+  await prisma.signal.update({
+    where: {
+      id: signal.id
+    },
+    data: {
+      matchedRule
+    }
   });
 
-  const analysesWithSignals = await prisma.signalAnalysis.findMany({
+  await prisma.signalAnalysis.upsert({
+    where: {
+      signalId: signal.id
+    },
+    update: {
+      sport: analysis.sport,
+      city: analysis.city,
+      state: analysis.state,
+      country: analysis.country,
+      userType: analysis.userType,
+      skillLevel: analysis.skillLevel,
+      leadIntentScore: analysis.leadIntentScore,
+      urgencyScore: analysis.urgencyScore,
+      commercialRelevanceScore: analysis.commercialRelevanceScore,
+      sentiment: analysis.sentiment,
+      relevanceStatus: analysis.relevanceStatus,
+      explanation: analysis.explanation,
+      clusterId: null
+    },
+    create: {
+      id: stableId("analysis", signal.platformSignalId),
+      signalId: signal.id,
+      sport: analysis.sport,
+      city: analysis.city,
+      state: analysis.state,
+      country: analysis.country,
+      userType: analysis.userType,
+      skillLevel: analysis.skillLevel,
+      leadIntentScore: analysis.leadIntentScore,
+      urgencyScore: analysis.urgencyScore,
+      commercialRelevanceScore: analysis.commercialRelevanceScore,
+      sentiment: analysis.sentiment,
+      relevanceStatus: analysis.relevanceStatus,
+      explanation: analysis.explanation
+    }
+  });
+}
+
+async function analyzeSignals(signals: StoredSignal[], rules: Rule[]) {
+  if (!signals.length) {
+    return;
+  }
+
+  await runInBatches(signals, ANALYSIS_BATCH_SIZE, async (signal) => {
+    const { matchedRule, analysis } = await analyzeStoredSignal(signal, rules);
+    await persistSignalAnalysis(signal, matchedRule, analysis);
+  });
+}
+
+async function materializeAudienceClusters(): Promise<ClusterWithSignals[]> {
+  const analyses = await prisma.signalAnalysis.findMany({
     include: {
       signal: true
     },
@@ -135,7 +198,11 @@ export async function runIntentToAudienceEngine(_options: RunOptions = {}) {
     }
   });
 
-  const clusterDrafts = generateAudienceClusters(analysesWithSignals);
+  const clusterDrafts = buildAudienceClusters(analyses);
+
+  if (!clusterDrafts.length) {
+    return [];
+  }
 
   for (const clusterDraft of clusterDrafts) {
     const clusterId = stableId(
@@ -167,7 +234,7 @@ export async function runIntentToAudienceEngine(_options: RunOptions = {}) {
     });
   }
 
-  const clustersWithSignals = await prisma.audienceCluster.findMany({
+  return prisma.audienceCluster.findMany({
     include: {
       analyses: {
         include: {
@@ -182,12 +249,34 @@ export async function runIntentToAudienceEngine(_options: RunOptions = {}) {
       confidenceScore: "desc"
     }
   });
+}
 
-  await runInBatches(clustersWithSignals, 4, async (cluster) => {
+async function materializeAudienceRecipes(clusters: ClusterWithSignals[]) {
+  if (!clusters.length) {
+    return;
+  }
+
+  await runInBatches(clusters, RECIPE_BATCH_SIZE, async (cluster) => {
     const recipe = await generateAudienceRecipe(cluster);
 
-    await prisma.audienceRecipe.create({
-      data: {
+    await prisma.audienceRecipe.upsert({
+      where: {
+        clusterId: cluster.id
+      },
+      update: {
+        audienceName: recipe.audienceName,
+        targetSport: recipe.targetSport,
+        targetLocation: recipe.targetLocation,
+        targetUserType: recipe.targetUserType,
+        keywordTargets: recipe.keywordTargets,
+        conversationTargets: recipe.conversationTargets,
+        exclusions: recipe.exclusions,
+        suggestedLandingPage: recipe.suggestedLandingPage,
+        adAngle: recipe.adAngle,
+        cta: recipe.cta,
+        confidenceScore: recipe.confidenceScore
+      },
+      create: {
         id: stableId("recipe", cluster.id),
         clusterId: cluster.id,
         audienceName: recipe.audienceName,
@@ -204,13 +293,15 @@ export async function runIntentToAudienceEngine(_options: RunOptions = {}) {
       }
     });
   });
+}
 
-  const summary = await Promise.all([
+async function buildPipelineSummary(): Promise<PipelineSummary> {
+  const [totalSignals, candidateSignals, clusters, recipes] = await Promise.all([
     prisma.signal.count(),
-    prisma.signalAnalysis.count({
+    prisma.signal.count({
       where: {
-        relevanceStatus: {
-          in: ["RELEVANT", "POSSIBLE"]
+        matchedRule: {
+          not: null
         }
       }
     }),
@@ -219,9 +310,29 @@ export async function runIntentToAudienceEngine(_options: RunOptions = {}) {
   ]);
 
   return {
-    totalSignals: summary[0],
-    candidateSignals: summary[1],
-    clusters: summary[2],
-    recipes: summary[3]
+    totalSignals,
+    candidateSignals,
+    clusters,
+    recipes
   };
 }
+
+export async function runIntentToAudienceEngine(): Promise<PipelineSummary> {
+  await replaceSeedRules();
+  await ingestSignalsFromProvider();
+  await clearDerivedData();
+
+  const [rules, signals] = await Promise.all([loadRules(), loadSignals()]);
+
+  if (!signals.length) {
+    return buildPipelineSummary();
+  }
+
+  await analyzeSignals(signals, rules);
+
+  const clusters = await materializeAudienceClusters();
+  await materializeAudienceRecipes(clusters);
+
+  return buildPipelineSummary();
+}
+

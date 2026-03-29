@@ -1,4 +1,4 @@
-import type { AudienceCluster, SignalAnalysis, Signal } from "@prisma/client";
+﻿import type { AudienceCluster, SignalAnalysis, Signal } from "../../generated/prisma/client";
 
 import { getOpenAIClient, getOpenAIModel, shouldUseMockLlm } from "../openai";
 import type { AudienceRecipeDraft, UserType } from "../types";
@@ -8,9 +8,13 @@ type ClusterContext = AudienceCluster & {
   analyses: Array<SignalAnalysis & { signal: Signal }>;
 };
 
-function recipeTemplate(cluster: ClusterContext): AudienceRecipeDraft {
+function uniqueStrings(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function buildFallbackAudienceRecipe(cluster: ClusterContext): AudienceRecipeDraft {
   const userType = (cluster.audienceType || "unknown") as UserType;
-  const keywordStem =
+  const keywordTargets =
     cluster.sport === "tennis"
       ? ["tennis lessons", "tennis coach", "beginner tennis class", "private tennis lesson"]
       : cluster.sport === "golf"
@@ -36,8 +40,8 @@ function recipeTemplate(cluster: ClusterContext): AudienceRecipeDraft {
     targetSport: cluster.sport as AudienceRecipeDraft["targetSport"],
     targetLocation: cluster.geoScope,
     targetUserType: userType,
-    keywordTargets: keywordStem,
-    conversationTargets: cluster.analyses.slice(0, 5).map((analysis) => `@${analysis.signal.authorHandle}`),
+    keywordTargets,
+    conversationTargets: uniqueStrings(cluster.analyses.map((analysis) => `@${analysis.signal.authorHandle}`)).slice(0, 5),
     exclusions: ["pro tournament chatter", "equipment-only shoppers", "job postings", "brand giveaways"],
     suggestedLandingPage:
       userType === "parent_youth"
@@ -51,33 +55,54 @@ function recipeTemplate(cluster: ClusterContext): AudienceRecipeDraft {
   };
 }
 
+function normalizeStringArray(values: unknown, fallback: string[]) {
+  if (!Array.isArray(values)) {
+    return fallback;
+  }
+
+  const sanitized = values.map((value) => String(value).trim()).filter(Boolean);
+  return sanitized.length ? sanitized : fallback;
+}
+
 function normalizeRecipe(recipe: Partial<AudienceRecipeDraft>, fallback: AudienceRecipeDraft): AudienceRecipeDraft {
   return {
-    audienceName: recipe.audienceName || fallback.audienceName,
+    audienceName: recipe.audienceName?.trim() || fallback.audienceName,
     targetSport: (recipe.targetSport || fallback.targetSport) as AudienceRecipeDraft["targetSport"],
-    targetLocation: recipe.targetLocation || fallback.targetLocation,
+    targetLocation: recipe.targetLocation?.trim() || fallback.targetLocation,
     targetUserType: (recipe.targetUserType || fallback.targetUserType) as AudienceRecipeDraft["targetUserType"],
-    keywordTargets: recipe.keywordTargets?.length ? recipe.keywordTargets : fallback.keywordTargets,
-    conversationTargets: recipe.conversationTargets?.length ? recipe.conversationTargets : fallback.conversationTargets,
-    exclusions: recipe.exclusions?.length ? recipe.exclusions : fallback.exclusions,
-    suggestedLandingPage: recipe.suggestedLandingPage || fallback.suggestedLandingPage,
-    adAngle: recipe.adAngle || fallback.adAngle,
-    cta: recipe.cta || fallback.cta,
+    keywordTargets: normalizeStringArray(recipe.keywordTargets, fallback.keywordTargets),
+    conversationTargets: normalizeStringArray(recipe.conversationTargets, fallback.conversationTargets),
+    exclusions: normalizeStringArray(recipe.exclusions, fallback.exclusions),
+    suggestedLandingPage: recipe.suggestedLandingPage?.trim() || fallback.suggestedLandingPage,
+    adAngle: recipe.adAngle?.trim() || fallback.adAngle,
+    cta: recipe.cta?.trim() || fallback.cta,
     confidenceScore: clamp01(Number(recipe.confidenceScore ?? fallback.confidenceScore))
   };
 }
 
-export async function generateAudienceRecipe(cluster: ClusterContext): Promise<AudienceRecipeDraft> {
-  const fallback = recipeTemplate(cluster);
+function extractResponseContent(content: unknown) {
+  if (typeof content === "string") {
+    return content;
+  }
 
-  if (shouldUseMockLlm()) {
-    return fallback;
+  if (Array.isArray(content)) {
+    return content.map((part) => (typeof part === "object" && part && "text" in part ? String(part.text) : "")).join("");
+  }
+
+  return "";
+}
+
+export async function generateAudienceRecipe(cluster: ClusterContext): Promise<AudienceRecipeDraft> {
+  const fallbackRecipe = buildFallbackAudienceRecipe(cluster);
+
+  if (!cluster.analyses.length || shouldUseMockLlm()) {
+    return fallbackRecipe;
   }
 
   const client = getOpenAIClient();
 
   if (!client) {
-    return fallback;
+    return fallbackRecipe;
   }
 
   try {
@@ -106,18 +131,18 @@ export async function generateAudienceRecipe(cluster: ClusterContext): Promise<A
               confidenceScore: cluster.confidenceScore
             },
             samplePosts,
-            requiredShape: fallback
+            requiredShape: fallbackRecipe
           })
         }
       ]
     });
 
-    const content = response.choices[0]?.message?.content;
-    const payload = typeof content === "string" ? content : Array.isArray(content) ? content.map((part) => ("text" in part ? part.text : "")).join("") : "";
-    const parsed = safeJsonParse<Partial<AudienceRecipeDraft>>(payload, {});
+    const content = extractResponseContent(response.choices[0]?.message?.content);
+    const parsed = safeJsonParse<Partial<AudienceRecipeDraft>>(content, {});
 
-    return normalizeRecipe(parsed, fallback);
+    return normalizeRecipe(parsed, fallbackRecipe);
   } catch {
-    return fallback;
+    return fallbackRecipe;
   }
 }
+

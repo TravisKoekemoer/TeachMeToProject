@@ -1,4 +1,6 @@
-export type ProviderSignal = {
+﻿import type { XProviderMode } from "../../config";
+
+export type XIngestionSignal = {
   platformSignalId: string;
   authorHandle: string;
   authorDisplayName: string | null;
@@ -8,8 +10,9 @@ export type ProviderSignal = {
   rawJson: Record<string, unknown>;
 };
 
-export interface XSignalProvider {
+export interface XIngestionProvider {
+  platform: "x";
+  mode: XProviderMode;
   name: string;
-  fetchSignals(): Promise<ProviderSignal[]>;
+  fetchSignals(): Promise<XIngestionSignal[]>;
 }
-
